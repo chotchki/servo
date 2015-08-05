@@ -4,6 +4,7 @@
 
 use dom::bindings::codegen::Bindings::StorageBinding;
 use dom::bindings::codegen::Bindings::StorageBinding::StorageMethods;
+use dom::bindings::error::{Fallible};
 use dom::bindings::global::{GlobalRef, GlobalField};
 use dom::bindings::js::{Root, RootedReference};
 use dom::bindings::refcounted::Trusted;
@@ -85,7 +86,7 @@ impl<'a> StorageMethods for &'a Storage {
         item
     }
 
-    fn SetItem(self, name: DOMString, value: DOMString) {
+    fn SetItem(self, name: DOMString, value: DOMString) -> Fallible<()>{
         let (sender, receiver) = channel();
 
         let msg = StorageTaskMsg::SetItem(sender, self.get_url(), self.storage_type, name.clone(), value.clone());
@@ -94,14 +95,15 @@ impl<'a> StorageMethods for &'a Storage {
         if changed {
             self.broadcast_change_notification(Some(name), old_value, Some(value));
         }
+        Ok(())
     }
 
-    fn NamedSetter(self, name: DOMString, value: DOMString) {
-        self.SetItem(name, value);
+    fn NamedSetter(self, name: DOMString, value: DOMString) -> Fallible<()>{
+        self.SetItem(name, value)
     }
 
-    fn NamedCreator(self, name: DOMString, value: DOMString) {
-        self.SetItem(name, value);
+    fn NamedCreator(self, name: DOMString, value: DOMString) -> Fallible<()>{
+        self.SetItem(name, value)
     }
 
     fn RemoveItem(self, name: DOMString) {

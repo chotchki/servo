@@ -31,6 +31,8 @@ struct StorageManager {
     port: Receiver<StorageTaskMsg>,
     session_data: HashMap<String, BTreeMap<DOMString, DOMString>>,
     local_data: HashMap<String, BTreeMap<DOMString, DOMString>>,
+    origin_quota: HashMap<String, u64>,
+    quota_size_limit: u64
 }
 
 impl StorageManager {
@@ -39,6 +41,8 @@ impl StorageManager {
             port: port,
             session_data: HashMap::new(),
             local_data: HashMap::new(),
+            origin_quota: HashMap::new(),
+            quota_size_limit: 5 * 1024 * 1024
         }
     }
 }
@@ -102,15 +106,34 @@ impl StorageManager {
 
     /// Sends Some(old_value) in case there was a previous value with the same key name but with different
     /// value name, otherwise sends None
-    fn set_item(&mut self, sender: Sender<(bool, Option<DOMString>)>, url: Url, storage_type: StorageType,
-                name: DOMString, value: DOMString) {
+    fn set_item(&mut self, sender: Sender<(bool, Option<DOMString>)>, url: Url, storage_type: StorageType, name: DOMString, value: DOMString) {
         let origin = self.get_origin_as_string(url);
         let data = self.select_data_mut(storage_type);
+        let data_quota = &mut self.origin_quota;
+
         if !data.contains_key(&origin) {
             data.insert(origin.clone(), BTreeMap::new());
+            data_quota.insert(origin.clone(), 0);
         }
 
         let (changed, old_value) = data.get_mut(&origin).map(|entry| {
+            let current_quota_size = data_quota.get_mut(&origin);
+
+            if entry.contains_key(&name){
+                let future_quota_size = current_quota_size - entry.get(&name).unwrap().len() + value.len();
+                if(future_quota_size > self.quota_size_limit){
+                    sender.send((false, Err(()))).unwrap();
+                    return;
+                }
+                current_quota_size = future_quota_size;
+            } else {
+                let future_quota_size = current_quota_size + name.len() + value.len();
+                if(future_quota_size > self.quota_size_limit){
+                    sender.send((false, Err(()))).unwrap();
+                    return;
+                }
+                current_quota_size = future_quota_size;
+            }
             entry.insert(name, value.clone()).map_or(
                 (true, None),
                 |old| if old == value {
@@ -135,17 +158,24 @@ impl StorageManager {
                    name: DOMString) {
         let origin = self.get_origin_as_string(url);
         let data = self.select_data_mut(storage_type);
+        let data_quota = &mut self.origin_quota;
         let old_value = data.get_mut(&origin).and_then(|entry| {
+            data_quota.get_mut(&origin).and_then(|quota_value| {
+               quota_value = quota_value - name.len() - entry.len()
+            });
             entry.remove(&name)
         });
+
         sender.send(old_value).unwrap();
     }
 
     fn clear(&mut self, sender: Sender<bool>, url: Url, storage_type: StorageType) {
         let origin = self.get_origin_as_string(url);
         let data = self.select_data_mut(storage_type);
+        let data_quota = &mut self.origin_quota;
         sender.send(data.get_mut(&origin)
                     .map_or(false, |entry| {
+                        data_quota.insert(origin.clone(), 0); 
                         if !entry.is_empty() {
                             entry.clear();
                             true
