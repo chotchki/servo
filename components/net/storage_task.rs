@@ -31,8 +31,8 @@ struct StorageManager {
     port: Receiver<StorageTaskMsg>,
     session_data: HashMap<String, BTreeMap<DOMString, DOMString>>,
     local_data: HashMap<String, BTreeMap<DOMString, DOMString>>,
-    origin_quota: HashMap<String, u64>,
-    quota_size_limit: u64
+    origin_quota: HashMap<String, usize>,
+    quota_size_limit: usize
 }
 
 impl StorageManager {
@@ -117,22 +117,22 @@ impl StorageManager {
         }
 
         let (changed, old_value) = data.get_mut(&origin).map(|entry| {
-            let current_quota_size = data_quota.get_mut(&origin);
+            let current_quota_size = data_quota.get_mut(&origin).unwrap();
 
             if entry.contains_key(&name){
-                let future_quota_size = current_quota_size - entry.get(&name).unwrap().len() + value.len();
+                let future_quota_size = *current_quota_size - entry.get(&name).unwrap().len() + value.len();
                 if(future_quota_size > self.quota_size_limit){
                     sender.send((false, Err(()))).unwrap();
                     return;
                 }
-                current_quota_size = future_quota_size;
+                *current_quota_size = future_quota_size;
             } else {
-                let future_quota_size = current_quota_size + name.len() + value.len();
+                let future_quota_size = *current_quota_size + name.len() + value.len();
                 if(future_quota_size > self.quota_size_limit){
                     sender.send((false, Err(()))).unwrap();
                     return;
                 }
-                current_quota_size = future_quota_size;
+                *current_quota_size = future_quota_size;
             }
             entry.insert(name, value.clone()).map_or(
                 (true, None),
